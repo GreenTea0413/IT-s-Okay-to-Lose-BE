@@ -42,18 +42,23 @@ public class StockWebSocketHandler extends TextWebSocketHandler {
         if (!marketOpen) return;
 
         BaseResponse<Object> response = baseResponseService.getSuccessResponse(rawData);
-
+        TextMessage message;
         try {
-            String json = objectMapper.writeValueAsString(response);
-            TextMessage message = new TextMessage(json);
+            message = new TextMessage(objectMapper.writeValueAsString(response));
+        } catch (IOException e) {
+            log.error("❌ WebSocket 메시지 직렬화 실패", e);
+            return;
+        }
 
-            for (WebSocketSession session : sessions) {
+        for (WebSocketSession session : sessions) {
+            try {
                 if (session.isOpen()) {
                     session.sendMessage(message);
                 }
+            } catch (IOException e) {
+                log.error("❌ WebSocket 메시지 전송 중 오류 발생: {}", e.getMessage());
+                sessions.remove(session);
             }
-        } catch (IOException e) {
-            log.error("❌ WebSocket 메시지 전송 실패", e);
         }
     }
 

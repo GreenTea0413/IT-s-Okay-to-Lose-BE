@@ -8,10 +8,14 @@ import com.example.iotl.service.stock.StockService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.SerializationFeature;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.TaskScheduler;
 import org.springframework.scheduling.annotation.Scheduled;
+import org.springframework.scheduling.support.CronTrigger;
 import org.springframework.stereotype.Component;
 
+import java.time.ZoneId;
 import java.util.*;
 
 @Component
@@ -22,21 +26,21 @@ public class StockScheduler {
     private final StockService stockService;
     private final StocksRepository stocksRepository;
     private final StockWebSocketHandler stockWebSocketHandler;
+    private final TaskScheduler taskScheduler;
     private final ObjectMapper objectMapper;
 
     private int currentIndex = 0;
     private static final int BATCH_SIZE = 5;
 
-    // 종목 코드 기준으로 마지막 전송한 데이터 보관
-    private final Map<String, DynamicStockDataDto> lastSentMap = new HashMap<>();
-
     public StockScheduler(StockApiService stockApiService, StockService stockService,
                           StocksRepository stocksRepository,
-                          StockWebSocketHandler stockWebSocketHandler) {
+                          StockWebSocketHandler stockWebSocketHandler,
+                          TaskScheduler taskScheduler) {
         this.stockApiService = stockApiService;
         this.stockService = stockService;
         this.stocksRepository = stocksRepository;
         this.stockWebSocketHandler = stockWebSocketHandler;
+        this.taskScheduler = taskScheduler;
 
         this.objectMapper = new ObjectMapper();
         this.objectMapper.registerModule(new JavaTimeModule());
@@ -96,37 +100,18 @@ public class StockScheduler {
         }
     }
 
-    @Scheduled(cron = "0 35 15 * * ?", zone = "Asia/Seoul")  // 15:31:00
-    public void saveBatch1() {
-        saveStockPriceBatch(0);
+    @PostConstruct
+    public void scheduleSaveBatches() {
+        for (int i = 0; i < 6; i++) {
+            final int batchIndex = i;
+            String cron = (i * 10) + " 35 15 * * ?";
+            taskScheduler.schedule(
+                () -> saveStockPriceBatch(batchIndex),
+                new CronTrigger(cron, ZoneId.of("Asia/Seoul"))
+            );
+        }
     }
 
-    @Scheduled(cron = "10 35 15 * * ?", zone = "Asia/Seoul") // 15:31:10
-    public void saveBatch2() {
-        saveStockPriceBatch(1);
-    }
-
-    @Scheduled(cron = "20 35 15 * * ?", zone = "Asia/Seoul") // 15:31:20
-    public void saveBatch3() {
-        saveStockPriceBatch(2);
-    }
-
-    @Scheduled(cron = "30 35 15 * * ?", zone = "Asia/Seoul") // 15:31:30
-    public void saveBatch4() {
-        saveStockPriceBatch(3);
-    }
-
-    @Scheduled(cron = "40 35 15 * * ?", zone = "Asia/Seoul") // 15:31:40
-    public void saveBatch5() {
-        saveStockPriceBatch(4);
-    }
-
-    @Scheduled(cron = "50 35 15 * * ?", zone = "Asia/Seoul") // 15:31:50
-    public void saveBatch6() {
-        saveStockPriceBatch(5);
-    }
-
-    // ✅ 공통 메서드
     private void saveStockPriceBatch(int batchIndex) {
         List<String> stockCodes = stocksRepository.findAllStockCodes();
         int batchSize = 5;
