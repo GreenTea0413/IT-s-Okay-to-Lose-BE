@@ -14,6 +14,7 @@ import org.springframework.http.HttpMethod;
 
 import java.util.HashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 
 @Slf4j
@@ -51,7 +52,22 @@ public class StockApiService {
         return accessToken;
     }
 
+    // 같은 종목을 여러 화면과 사용자가 동시에 요청해도 증권사 API는 종목당 한 번만 부르도록 잠깐 보관한다
+    // ponytail: 서버 한 대 기준 메모리 보관. 서버를 여러 대로 늘리면 Redis 같은 공용 저장소로 옮긴다
+    private static final long PRICE_TTL_MS = 3000;
+    private record CachedPrice(long fetchedAt, Map<String, Object> body) {}
+    private final Map<String, CachedPrice> priceCache = new ConcurrentHashMap<>();
+
     public Map<String, Object> getStockPrice(String code) {
+        // compute는 같은 종목에 대한 동시 요청을 줄 세우므로 두 스케줄러가 같은 순간에 불러도 호출은 한 번이다
+        return priceCache.compute(code, (k, cached) ->
+                cached != null && System.currentTimeMillis() - cached.fetchedAt() < PRICE_TTL_MS
+                        ? cached
+                        : new CachedPrice(System.currentTimeMillis(), fetchStockPrice(k))
+        ).body();
+    }
+
+    private Map<String, Object> fetchStockPrice(String code) {
         getAccessToken();
 
         HttpHeaders headers = new HttpHeaders();
